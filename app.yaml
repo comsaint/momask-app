@@ -1,1 +1,3 @@
 runtime: python37
+readiness_check:
+      app_start_timeout_sec: 1800
