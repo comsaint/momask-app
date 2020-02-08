@@ -126,7 +126,7 @@ def update_figure(chosen_boro, chosen_recycling):
             clickmode='event+select',
             hovermode='closest',
             hoverdistance=2,
-            title=dict(text="邊度搵口罩?",font=dict(size=50, color='green')),
+            title=dict(text="邊度搵口罩? 睇地圖啦",font=dict(size=50, color='green')),
             mapbox=dict(
                 accesstoken=mapbox_access_token,
                 bearing=25,
