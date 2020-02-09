@@ -106,14 +106,16 @@ def update_figure(chosen_boro, chosen_recycling):
     df_sub = df[(df['boro'].isin(chosen_boro)) &
                 (df['type'].isin(chosen_recycling))]
 
+    bubble_size = [np.log(x)*3 if x != 0 else 20 for x in df['tolqty_diff']]
+
     # Create figure
     locations=[go.Scattermapbox(
                     lon=df_sub['longitude'],
                     lat=df_sub['latitude'],
                     mode='markers',
-                    marker={'color': df_sub['color']},
+                    marker={'color' : df_sub['color'],'opacity':0.5,'size':bubble_size},
                     unselected={'marker': {'opacity': 1}},
-                    selected={'marker': {'opacity': 0.5, 'size': 25}},
+                    selected={'marker': {'opacity': 1, 'size': 30}},
                     hoverinfo='text',
                     hovertext=df_sub['hov_txt'],
                     customdata=df_sub['website']
@@ -126,14 +128,14 @@ def update_figure(chosen_boro, chosen_recycling):
             clickmode='event+select',
             hovermode='closest',
             hoverdistance=2,
-            title=dict(text="邊度搵口罩? 睇地圖啦",font=dict(size=50, color='green')),
+            title=dict(text="邊度可以搵口罩?",font=dict(size=50, color='green')),
             mapbox=dict(
                 accesstoken=mapbox_access_token,
                 bearing=25,
                 style='light',
                 center=dict(
-                    lat=22.156760,
-                    lon=113.558500
+                    lat=22.19392,
+                    lon=113.54371
                 ),
                 pitch=40,
                 zoom=13.5
