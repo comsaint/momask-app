@@ -1,3 +1,4 @@
+APScheduler==3.6.3
 Click==7.0
 dash==1.9.0
 dash-core-components==1.8.0

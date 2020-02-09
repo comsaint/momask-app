@@ -20,12 +20,21 @@ import dash_html_components as html
 from dash.dependencies import Input, Output
 import plotly.graph_objs as go
 import pandas as pd
+import atexit
+from apscheduler.schedulers.background import BackgroundScheduler
+from update_data import update_data
+from settings import ASSETS_FOLDER
 
 mapbox_access_token = 'pk.eyJ1IjoiY29tc2FpbnQiLCJhIjoiY2s2Ynpvd2VhMTNlcTNlcGtqamJjb2o3bSJ9.3_uGJ8EBdgxqntrEslskCQ'
 blackbold = {'color': 'black', 'font-weight': 'bold'}
 
 dash_app = dash.Dash(__name__)
 app = dash_app.server
+
+sched = BackgroundScheduler(daemon=True)
+sched.add_job(update_data, 'interval', minutes=15)
+sched.start()
+atexit.register(lambda: sched.shutdown(wait=False))
 
 # modify default template to serve GA's JS in header
 # Check "Customizing Dash's HTML Index Template" section on https://dash.plot.ly/external-resources
@@ -36,8 +45,9 @@ dash_app.index_string = '''
         {%metas%}
         <title>mask stock in Macao</title>
         <meta name="description=" 
-        content="Momask is a real-time dashbaord visualizing the stock of surgical mask in Macao SAR. 
+        content="Momask is a real-time, interactive dashbaord visualizing the stock of surgical masks in Macao SAR. 
         The data is supplied by the Macao Health Bureau during the coronavirus outbreak in 2020.">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
         {%favicon%}
         {%css%}
         <!-- Global site tag (gtag.js) - Google Analytics -->
@@ -56,13 +66,14 @@ dash_app.index_string = '''
             {%scripts%}
             {%renderer%}
         </footer>
+        <div>Disclaimer:</div>
     </body>
 </html>
 '''
 
 # final touch on data
 # read data
-df = pd.read_csv('https://storage.googleapis.com/momask/df.csv',
+df = pd.read_csv(ASSETS_FOLDER / 'df.csv',
                  encoding='utf-8',
                  parse_dates=['human_parsed_timestamp'],
                  infer_datetime_format=True)
@@ -176,7 +187,7 @@ def update_figure(chosen_boro, chosen_recycling):
         lat=df_sub['latitude'],
         text=df_sub['name_location'],
         textfont=dict(family='NSimSun serif',
-                      size=20,
+                      size=30,
                       color='#000'
                       ),
         mode='markers+text',
@@ -204,14 +215,14 @@ def update_figure(chosen_boro, chosen_recycling):
             title=dict(text="邊度有口罩?", font=dict(size=50, color='green')),
             mapbox=dict(
                 accesstoken=mapbox_access_token,
-                bearing=25,
-                style='light',
+                bearing=0,
+                style='streets',
                 center=dict(
                     lat=22.19392,
                     lon=113.54371
                 ),
-                pitch=40,
-                zoom=13.5
+                pitch=0,
+                zoom=13.5,
             ),
         )
     }
@@ -250,4 +261,4 @@ def display_click_poi_info(clickData):
 
 
 if __name__ == '__main__':
-    dash_app.run_server(debug=True)
+    dash_app.run_server()
