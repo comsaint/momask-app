@@ -34,6 +34,10 @@ df = pd.read_csv('https://storage.googleapis.com/momask/df.csv',
                  infer_datetime_format=True)
 latest_time = df['human_parsed_timestamp'].max()
 
+# set color
+df.loc[df['tolqty_diff'] <= 1000, 'color'] = '#a9a9a9'  # grey
+df.loc[df['tolqty_diff'] <= 100, 'color'] = '#000000'  # black
+
 dash_app.layout = html.Div(children=[
     html.Div([
         html.Div([
@@ -106,19 +110,23 @@ def update_figure(chosen_boro, chosen_recycling):
     df_sub = df[(df['boro'].isin(chosen_boro)) &
                 (df['type'].isin(chosen_recycling))]
 
-    bubble_size = [np.log(x)*3 if x != 0 else 20 for x in df['tolqty_diff']]
-
     # Create figure
     locations=[go.Scattermapbox(
                     lon=df_sub['longitude'],
                     lat=df_sub['latitude'],
                     mode='markers',
-                    marker={'color' : df_sub['color'],'opacity':0.5,'size':bubble_size},
-                    unselected={'marker': {'opacity': 1}},
-                    selected={'marker': {'opacity': 1, 'size': 30}},
+                    marker={'color': df_sub['color'],
+                            'opacity':0.5,
+                            'size':df['tolqty_diff'],
+                            'sizeref':30,
+                            'sizemin':10,
+                            'sizemode':'area'
+                            },
+                    unselected={'marker': {'opacity': 0.5}},
+                    selected={'marker': {'opacity': 1, 'color': '#00ff00'}},
                     hoverinfo='text',
                     hovertext=df_sub['hov_txt'],
-                    customdata=df_sub['website']
+                    customdata=df_sub['website'],
     )]
     # Return figure
     return {
