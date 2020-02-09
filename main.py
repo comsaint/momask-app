@@ -27,29 +27,66 @@ blackbold = {'color': 'black', 'font-weight': 'bold'}
 dash_app = dash.Dash(__name__)
 app = dash_app.server
 
+# modify default template to serve GA's JS in header
+# Check "Customizing Dash's HTML Index Template" section on https://dash.plot.ly/external-resources
+dash_app.index_string = '''
+<!DOCTYPE html>
+<html>
+    <head>
+        {%metas%}
+        <title>mask stock in Macao</title>
+        <meta name="description=" 
+        content="Momask is a real-time dashbaord visualizing the stock of surgical mask in Macao SAR. 
+        The data is supplied by the Macao Health Bureau during the coronavirus outbreak in 2020.">
+        {%favicon%}
+        {%css%}
+        <!-- Global site tag (gtag.js) - Google Analytics -->
+        <script async src="https://www.googletagmanager.com/gtag/js?id=UA-157950932-1"></script>
+        <script>
+          window.dataLayer = window.dataLayer || [];
+          function gtag(){dataLayer.push(arguments);}
+          gtag('js', new Date());
+          gtag('config', 'UA-157950932-1');
+        </script>
+    </head>
+    <body>
+        {%app_entry%}
+        <footer>
+            {%config%}
+            {%scripts%}
+            {%renderer%}
+        </footer>
+    </body>
+</html>
+'''
+
+# final touch on data
 # read data
 df = pd.read_csv('https://storage.googleapis.com/momask/df.csv',
                  encoding='utf-8',
                  parse_dates=['human_parsed_timestamp'],
                  infer_datetime_format=True)
+# get latest update time
 latest_time = df['human_parsed_timestamp'].max()
-
 # set color
 df.loc[df['tolqty_diff'] <= 1000, 'color'] = '#a9a9a9'  # grey
 df.loc[df['tolqty_diff'] <= 100, 'color'] = '#000000'  # black
 
+# layout of app
 dash_app.layout = html.Div(children=[
     html.Div([
         html.Div([
             # Map-legend
             html.Ul([
-                html.Li("Pharmacy", className='circle', style={'background': '#0000ff', 'color': 'black',
-                                                               'list-style': 'none', 'text-indent': '17px',
-                                                               'white-space': 'nowrap'}),
-                html.Li("HealthCenter", className='circle', style={'background': '#FF0000', 'color': 'black',
-                                                                   'list-style': 'none', 'text-indent': '17px'}),
-                html.Li("Organisation", className='circle', style={'background': '#824100', 'color': 'black',
-                                                                   'list-style': 'none', 'text-indent': '17px'}),
+                html.Li("藥房", className='circle', style={'background': '#0000ff', 'color': 'black',
+                                                         'list-style': 'none', 'text-indent': '17px',
+                                                         'white-space': 'nowrap'}),
+                html.Li("衛生中心", className='circle', style={'background': '#FF0000', 'color': 'black',
+                                                           'list-style': 'none', 'text-indent': '17px',
+                                                           'white-space': 'nowrap'}),
+                html.Li("機構", className='circle', style={'background': '#824100', 'color': 'black',
+                                                         'list-style': 'none', 'text-indent': '17px',
+                                                         'white-space': 'nowrap'}),
             ], style={'border-bottom': 'solid 3px', 'border-color': '#00FC87', 'padding-top': '6px'}
             ),
 
@@ -66,10 +103,11 @@ dash_app.layout = html.Div(children=[
                           options=[{'label': str(b), 'value': b} for b in sorted(df['type'].unique())],
                           value=[b for b in sorted(df['type'].unique())],
                           ),
+            html.Br(),
+            html.P("點擊口罩購買位置,獲取更多資訊"),
 
             # Web_link
-            html.Br(),
-            html.Label(['Sources:'], style=blackbold),
+            html.Label(['參考來源:'], style=blackbold),
             html.Pre(id='web_link', children=[],
                      style={'white-space': 'pre-wrap', 'word-break': 'break-all',
                             'border': '1px solid black', 'text-align': 'center',
@@ -77,9 +115,19 @@ dash_app.layout = html.Div(children=[
                             'margin-top': '3px'}
                      ),
 
+            # Information
+            html.Br(),
+            html.Label(['口罩庫存:'], style=blackbold),
+            html.Pre(id='info', children=[],
+                     style={'white-space': 'pre-wrap', 'word-break': 'break-all',
+                            'border': '1px solid black', 'text-align': 'left',
+                            'padding': '12px 12px 12px 12px', 'color': 'black',
+                            'margin-top': '3px'}
+                     ),
+
             # Noted
             html.Br(),
-            html.Label(['Last Updated Time:'], style=blackbold),
+            html.Label(['最後更新時間:'], style=blackbold),
             html.Pre(id='noted', children=[latest_time],
                      style={'white-space': 'pre-wrap', 'word-break': 'break-all',
                             'border': '1px solid black', 'text-align': 'center',
@@ -87,6 +135,18 @@ dash_app.layout = html.Div(children=[
                             'margin-top': '3px'}
                      ),
 
+            # useful links
+            html.Br(),
+            html.Label(['相關連結:'], style=blackbold),
+            html.Pre(id='links', children=[
+                html.A("衛生局抗疫專頁",
+                       href="https://www.ssm.gov.mo/apps1/PreventWuhanInfection/ch.aspx",
+                       target="_blank"),
+                html.Br(),
+                html.A("武漢肺炎民間資訊(香港)",
+                       href="https://wars.vote4.hk/",
+                       target="_blank"),
+            ]),
         ], className='three columns'
         ),
 
@@ -111,32 +171,37 @@ def update_figure(chosen_boro, chosen_recycling):
                 (df['type'].isin(chosen_recycling))]
 
     # Create figure
-    locations=[go.Scattermapbox(
-                    lon=df_sub['longitude'],
-                    lat=df_sub['latitude'],
-                    mode='markers',
-                    marker={'color': df_sub['color'],
-                            'opacity':0.5,
-                            'size':df['tolqty_diff'],
-                            'sizeref':30,
-                            'sizemin':10,
-                            'sizemode':'area'
-                            },
-                    unselected={'marker': {'opacity': 0.5}},
-                    selected={'marker': {'opacity': 1, 'color': '#00ff00'}},
-                    hoverinfo='text',
-                    hovertext=df_sub['hov_txt'],
-                    customdata=df_sub['website'],
+    locations = [go.Scattermapbox(
+        lon=df_sub['longitude'],
+        lat=df_sub['latitude'],
+        text=df_sub['name_location'],
+        textfont=dict(family='NSimSun serif',
+                      size=20,
+                      color='#000'
+                      ),
+        mode='markers+text',
+        marker={'color': df_sub['color'],
+                'opacity': 0.5,
+                'size': df_sub['tolqty_diff'],
+                'sizeref': 30,
+                'sizemin': 10,
+                'sizemode': 'area'
+                },
+        unselected={'marker': {'opacity': 0.5}},
+        selected={'marker': {'opacity': 1, 'color': '#00ff00'}},
+        hoverinfo='text',
+        hovertext=df_sub['hov_txt'],
+        customdata=df_sub['website']
     )]
     # Return figure
     return {
         'data': locations,
         'layout': go.Layout(
-            uirevision='foo', # preserves state of figure/map after callback activated
+            uirevision='foo',  # preserves state of figure/map after callback activated
             clickmode='event+select',
             hovermode='closest',
             hoverdistance=2,
-            title=dict(text="邊度可以搵口罩?",font=dict(size=50, color='green')),
+            title=dict(text="邊度有口罩?", font=dict(size=50, color='green')),
             mapbox=dict(
                 accesstoken=mapbox_access_token,
                 bearing=25,
@@ -150,6 +215,8 @@ def update_figure(chosen_boro, chosen_recycling):
             ),
         )
     }
+
+
 # ---------------------------------------------------------------
 # callback for Web_link
 
@@ -159,14 +226,26 @@ def update_figure(chosen_boro, chosen_recycling):
     [Input('graph', 'clickData')])
 def display_click_data(clickData):
     if clickData is None:
-        return '點擊想購買口罩的位置,以獲取更多資訊'
+        return ''
     else:
-        # print (clickData)
-        the_link=clickData['points'][0]['customdata']
+        the_link = clickData['points'][0]['customdata']
         if the_link is None:
             return 'No Website Available'
         else:
             return html.A(the_link, href=the_link, target="_blank")
+
+
+@dash_app.callback(
+    Output('info', 'children'),
+    [Input('graph', 'clickData')])
+def display_click_poi_info(clickData):
+    if clickData is None:
+        return ''
+    else:
+        infos = clickData['points'][0]['hovertext'].replace('<br>', '\n')
+        return infos
+
+
 # --------------------------------------------------------------
 
 
