@@ -1,3 +1,6 @@
 runtime: python37
 readiness_check:
       app_start_timeout_sec: 1800
+instance_class: F4
+automatic_scaling:
+      min_pending_latency: 10s

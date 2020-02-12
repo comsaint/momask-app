@@ -20,8 +20,10 @@ import dash_html_components as html
 from dash.dependencies import Input, Output
 import plotly.graph_objs as go
 import pandas as pd
-from settings import GS_DFFULL_URL
-from flask_caching import Cache
+import atexit
+from apscheduler.schedulers.background import BackgroundScheduler
+from update_data import update_data
+from settings import ASSETS_FOLDER
 
 mapbox_access_token = 'pk.eyJ1IjoiY29tc2FpbnQiLCJhIjoiY2s2Ynpvd2VhMTNlcTNlcGtqamJjb2o3bSJ9.3_uGJ8EBdgxqntrEslskCQ'
 bold = {'font-weight': 'bold'}
@@ -30,74 +32,51 @@ type_color_map = {'pharmacy': '#0000ff', 'organization': '#088A08', 'health cent
 
 dash_app = dash.Dash(__name__, meta_tags=[{"name": "viewport", "content": "width=device-width, initial-scale=1.0"},
                                           {"name": "description",
-                                      "content": "Momask is a real-time, interactive dashbaord visualizing the stock"
-                                                 " of surgical masks in Macao SAR. The data is supplied by the Macao"
-                                                 " Health Bureau during the coronavirus outbreak in 2020."},
-                                          {'name': 'charset', "content": "UTF-8"},
+                                           "content":
+                                               "Momask is a real-time, interactive dashbaord visualizing the stock"
+                                               " of surgical masks in Macao SAR. The data is supplied by the Macao"
+                                               " Health Bureau during the coronavirus outbreak in 2020."},
                                           ])
 dash_app.title = "Momask - Macao's Mask Stock"
 app = dash_app.server
 
-# cache the data from GCS
-cache = Cache(app, config={
-    'CACHE_TYPE': 'filesystem',
-    'CACHE_DIR': 'cache-directory'
-})
-TIMEOUT = 300  # 5 minutes
+sched = BackgroundScheduler(daemon=True)
+sched.add_job(update_data, 'interval', minutes=5)
+sched.start()
+atexit.register(lambda: sched.shutdown(wait=False))
 
 
 # precessing of data goes here (generate hovertext, color etc.)
-@cache.memoize(timeout=TIMEOUT)
-def query_data():
-    def final_processing(dff):
-        """
-        # final touch on data before plotting. Nopte this method is meant for `df_full.csv`
-        :param dff:
-        :return:
-        """
-        # 1. Set color
-        dff['color'] = dff['poi_type'].map(type_color_map)
-        # set red alert color for low inventory
-        dff.loc[dff['tolqty_diff'] <= 500, 'color'] = type_color_map['low_supply']
-
-        # 2. Set hover text
-        dff['hov_txt'] = '名稱: ' + dff['name'] + '(' + dff['poi_type'] + ')' + '<br>' + \
-                         '地址: ' + dff['address'] + '<br>' + \
-                         '現時口罩數量: ' + dff['tolqty_diff'].astype(int).astype(str) + '<br>' \
-                                                                                   '最後更新時間: ' + dff[
-                             'human_parsed_timestamp'].apply(
-            lambda x: x.strftime('%Y{0}%m{1}%d{2} %H{3}%M{4}').format(*'年月日時分'))
-
-        # 3. get stock by POI and date
-        # sort by timestamp
-        dff.sort_values('human_parsed_timestamp', ascending=False, inplace=True)
-        # new date column
-        dff['human_parsed_date'] = dff['human_parsed_timestamp'].dt.date
-        # keep most updated entry per date of each code
-        df_by_poi_dt = dff.drop_duplicates(subset=['code', 'human_parsed_date'], keep='first')
-
-        # 4. get most updated data
-        df_recent = dff.groupby('code').first().reset_index()
-
-        return df_recent, df_by_poi_dt
-
-    # read data from GCS (if TIMEOUTed)
-    df_full = pd.read_csv(GS_DFFULL_URL,
-                          encoding='utf-8',
-                          parse_dates=['parsed_timestamp', 'human_parsed_timestamp'],
-                          infer_datetime_format=True)
-    df_most_update, df_by_poi_and_day = final_processing(df_full)
-    return df_most_update.to_json(date_format='iso', orient='split'), \
-           df_by_poi_and_day.to_json(date_format='iso', orient='split')
-
-
-def get_dfs():
+def final_processing(dff):
     """
-    Serialize DataFrames.
+    # final touch on data before plotting. Note this method is meant for `df_full.csv`
+    :param dff:
     :return:
     """
-    df1, df2 = query_data()
-    return pd.read_json(df1, orient='split'), pd.read_json(df2, orient='split')
+    # 1. Set color
+    dff['color'] = dff['poi_type'].map(type_color_map)
+    # set red alert color for low inventory
+    dff.loc[dff['tolqty_diff'] <= 500, 'color'] = type_color_map['low_supply']
+
+    # 2. Set hover text
+    dff['hov_txt'] = '名稱: ' + dff['name'] + '(' + dff['poi_type'] + ')' + '<br>' + \
+                     '地址: ' + dff['address'] + '<br>' + \
+                     '現時口罩數量: ' + dff['tolqty_diff'].astype(int).astype(str) + '<br>' \
+                                                                               '最後更新時間: ' + dff[
+                         'human_parsed_timestamp'].apply(
+        lambda x: x.strftime('%Y{0}%m{1}%d{2} %H{3}%M{4}').format(*'年月日時分'))
+
+    # 3. get stock by POI and date
+    # sort by timestamp
+    dff.sort_values('human_parsed_timestamp', ascending=False, inplace=True)
+    # new date column
+    dff['human_parsed_date'] = dff['human_parsed_timestamp'].dt.date
+    # keep most updated entry per date of each code
+    df_by_poi_dt = dff.drop_duplicates(subset=['code', 'human_parsed_date'], keep='first')
+
+    # 4. get most updated data
+    df_recent = dff.groupby('code').first().reset_index()
+    return df_recent, df_by_poi_dt
 
 
 # modify default template to serve GA's JS in header
@@ -185,7 +164,7 @@ dash_app.layout = html.Div(
                                      ),
                             dcc.Graph(id="map-graph"),
                             # update data every 5 minutes. Interval in millisecond
-                            dcc.Interval(id='interval-component', interval=1000 * 60 * 5),
+                            dcc.Interval(id='interval-component', interval=1000 * 60* 5),
                             dcc.Graph(id="bar-chart"),
                         ],
                         ),
@@ -197,20 +176,20 @@ dash_app.layout = html.Div(
 )
 
 
-def draw_map(df_map):
+def draw_map(df):
     # Create figure
     locations = [go.Scattermapbox(
-        lon=df_map['x'],
-        lat=df_map['y'],
-        text=df_map['name'],
+        lon=df['x'],
+        lat=df['y'],
+        text=df['name'],
         textfont=dict(family='NSimSun serif',
                       size=30,
                       color='#000'
                       ),
         mode='markers+text',
-        marker={'color': df_map['color'],
+        marker={'color': df['color'],
                 'opacity': 0.5,
-                'size': df_map['tolqty_diff'],
+                'size': df['tolqty_diff'],
                 'sizeref': 30,
                 'sizemin': 10,
                 'sizemode': 'area'
@@ -218,8 +197,8 @@ def draw_map(df_map):
         unselected={'marker': {'opacity': 0.5}},
         selected={'marker': {'opacity': 1}},
         hoverinfo='text',
-        hovertext=df_map['hov_txt'],
-        customdata=df_map['human_parsed_timestamp']
+        hovertext=df['hov_txt'],
+        customdata=df['human_parsed_timestamp']
     )]
     # Return figure
     return {
@@ -254,7 +233,7 @@ def draw_bar_chart(df):
     return {
         'data': [data, ],
         'layout': go.Layout(
-            title='庫存量',
+            title='口罩庫存',
             autosize=True,
             uirevision='foo2',  # preserves state of figure/map after callback activated
             clickmode='event+select',
@@ -284,14 +263,24 @@ def display_click_poi_info(clickData):
 @dash_app.callback(Output('map-graph', 'figure'),
                    [Input('interval-component', 'n_intervals')])
 def update_map(n):
-    df_update = get_dfs()[0]
-    return draw_map(df_update)
+    df_full = pd.read_csv(ASSETS_FOLDER / 'df_full.gz',
+                          encoding='utf-8',
+                          parse_dates=['parsed_timestamp', 'human_parsed_timestamp'],
+                          infer_datetime_format=True,
+                          low_memory=False)
+    df_most_update, _ = final_processing(df_full)
+    return draw_map(df_most_update)
 
 
 @dash_app.callback(Output('bar-chart', 'figure'),
                    [Input('interval-component', 'n_intervals')])
 def update_bar_chart(n):
-    df_all = get_dfs()[1]
+    df_full = pd.read_csv(ASSETS_FOLDER / 'df_full.gz',
+                          encoding='utf-8',
+                          parse_dates=['parsed_timestamp', 'human_parsed_timestamp'],
+                          infer_datetime_format=True,
+                          low_memory=False)
+    _, df_all = final_processing(df_full)
     return draw_bar_chart(df_all)
 
 
@@ -299,4 +288,4 @@ def update_bar_chart(n):
 
 
 if __name__ == '__main__':
-    dash_app.run_server(debug=False)
+    dash_app.run_server(debug=True)
