@@ -28,17 +28,18 @@ bold = {'font-weight': 'bold'}
 type_color_map = {'pharmacy': '#0000ff', 'organization': '#088A08', 'health centre': '#FF8000',
                   'low_supply': '#FF0000'}
 
-app = dash.Dash(__name__, meta_tags=[{"name": "viewport", "content": "width=device-width, initial-scale=1.0"},
-                                     {"name": "description",
+dash_app = dash.Dash(__name__, meta_tags=[{"name": "viewport", "content": "width=device-width, initial-scale=1.0"},
+                                          {"name": "description",
                                       "content": "Momask is a real-time, interactive dashbaord visualizing the stock"
                                                  " of surgical masks in Macao SAR. The data is supplied by the Macao"
                                                  " Health Bureau during the coronavirus outbreak in 2020."},
-                                     ])
-app.title = "Momask - Macao's Mask Stock"
-server = app.server
+                                          {'name': 'charset', "content": "UTF-8"},
+                                          ])
+dash_app.title = "Momask - Macao's Mask Stock"
+app = dash_app.server
 
 # cache the data from GCS
-cache = Cache(server, config={
+cache = Cache(app, config={
     'CACHE_TYPE': 'filesystem',
     'CACHE_DIR': 'cache-directory'
 })
@@ -101,7 +102,7 @@ def get_dfs():
 
 # modify default template to serve GA's JS in header
 # check "Customizing Dash's HTML Index Template" section on https://dash.plot.ly/external-resources
-app.index_string = '''
+dash_app.index_string = '''
 <!DOCTYPE html>
 <html>
     <head>
@@ -130,7 +131,7 @@ app.index_string = '''
 '''
 
 
-app.layout = html.Div(
+dash_app.layout = html.Div(
     children=[
         html.Div(
             className="row",
@@ -268,7 +269,7 @@ def draw_bar_chart(df):
     }
 
 
-@app.callback(
+@dash_app.callback(
     Output('info', 'children'),
     [Input('map-graph', 'clickData')])
 def display_click_poi_info(clickData):
@@ -280,15 +281,15 @@ def display_click_poi_info(clickData):
 
 
 # graphs update
-@app.callback(Output('map-graph', 'figure'),
-              [Input('interval-component', 'n_intervals')])
+@dash_app.callback(Output('map-graph', 'figure'),
+                   [Input('interval-component', 'n_intervals')])
 def update_map(n):
     df_update = get_dfs()[0]
     return draw_map(df_update)
 
 
-@app.callback(Output('bar-chart', 'figure'),
-              [Input('interval-component', 'n_intervals')])
+@dash_app.callback(Output('bar-chart', 'figure'),
+                   [Input('interval-component', 'n_intervals')])
 def update_bar_chart(n):
     df_all = get_dfs()[1]
     return draw_bar_chart(df_all)
@@ -298,4 +299,4 @@ def update_bar_chart(n):
 
 
 if __name__ == '__main__':
-    app.run_server(debug=False)
+    dash_app.run_server(debug=False)
