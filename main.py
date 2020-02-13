@@ -20,15 +20,16 @@ import dash_html_components as html
 from dash.dependencies import Input, Output
 import plotly.graph_objs as go
 import pandas as pd
-import atexit
-from apscheduler.schedulers.background import BackgroundScheduler
-from update_data import update_data
-from settings import ASSETS_FOLDER
+from settings import GS_DFFULL_URL
+import json
 
 mapbox_access_token = 'pk.eyJ1IjoiY29tc2FpbnQiLCJhIjoiY2s2Ynpvd2VhMTNlcTNlcGtqamJjb2o3bSJ9.3_uGJ8EBdgxqntrEslskCQ'
 bold = {'font-weight': 'bold'}
-type_color_map = {'pharmacy': '#0000ff', 'organization': '#088A08', 'health centre': '#FF8000',
+type_color_map = {'pharmacy': '#0000ff',
+                  'organization': '#088A08',
+                  'health centre': '#FF8000',
                   'low_supply': '#FF0000'}
+low_stock_threshold = 500
 
 dash_app = dash.Dash(__name__, meta_tags=[{"name": "viewport", "content": "width=device-width, initial-scale=1.0"},
                                           {"name": "description",
@@ -39,11 +40,6 @@ dash_app = dash.Dash(__name__, meta_tags=[{"name": "viewport", "content": "width
                                           ])
 dash_app.title = "Momask - Macao's Mask Stock"
 app = dash_app.server
-
-sched = BackgroundScheduler(daemon=True)
-sched.add_job(update_data, 'interval', minutes=5)
-sched.start()
-atexit.register(lambda: sched.shutdown(wait=False))
 
 
 # precessing of data goes here (generate hovertext, color etc.)
@@ -56,7 +52,7 @@ def final_processing(dff):
     # 1. Set color
     dff['color'] = dff['poi_type'].map(type_color_map)
     # set red alert color for low inventory
-    dff.loc[dff['tolqty_diff'] <= 500, 'color'] = type_color_map['low_supply']
+    dff.loc[dff['tolqty_diff'] <= low_stock_threshold, 'color'] = type_color_map['low_supply']
 
     # 2. Set hover text
     dff['hov_txt'] = '名稱: ' + dff['name'] + '(' + dff['poi_type'] + ')' + '<br>' + \
@@ -110,72 +106,81 @@ dash_app.index_string = '''
 '''
 
 
-dash_app.layout = html.Div(
-    children=[
-        html.Div(
-            className="row",
-            children=[
-                # Column for user controls
-                html.Div(
-                    className="three columns",
+# layout in a function for live update.
+# See https://dash.plot.ly/live-updates - 'Update on Page Load' section
+def serve_layout():
+    return html.Div(
                     children=[
-                        # html.Img(className="logo", src=app.get_asset_url("dash-logo-new.png")),
-                        html.H1("Momask - 邊度有口罩?"),
-                        # Map legend
-                        html.Ul(className='style_legend',
-                                children=[
-                                    html.Li("藥房", className='circle',
-                                            style={'background': type_color_map['pharmacy'], }
-                                            ),
-                                    html.Li("衛生中心", className='circle',
-                                            style={'background': type_color_map['health centre']}
-                                            ),
-                                    html.Li("機構", className='circle',
-                                            style={'background': type_color_map['organization']}
-                                            ),
-                                    html.Li("低庫存地點", className='circle',
-                                            style={'background': type_color_map['low_supply']}
-                                            ),
+                        html.Div(id='intermediate-value', children=[], hidden=True),
+                        html.Div(
+                            className="row",
+                            children=[
+                                # Column for user controls
+                                html.Div(
+                                    className="three columns",
+                                    children=[
+                                        # html.Img(className="logo", src=app.get_asset_url("dash-logo-new.png")),
+                                        html.H1("Momask - 邊度有口罩?"),
+                                        # Map legend
+                                        html.Ul(className='style_legend',
+                                                children=[
+                                                    html.Li("藥房", className='circle',
+                                                                    style={'background': type_color_map['pharmacy'], }
+                                                            ),
+                                                    html.Li("衛生中心", className='circle',
+                                                            style={'background': type_color_map['health centre']}
+                                                            ),
+                                                    html.Li("機構", className='circle',
+                                                            style={'background': type_color_map['organization']}
+                                                            ),
+                                                    html.Li("低庫存(少於{}個)".format(low_stock_threshold),
+                                                            className='circle',
+                                                            style={'background': type_color_map['low_supply']}
+                                                            ),
+                                                    ],
+                                                ),
+                                        html.Br(),
+                                        # Information
+                                        html.H2(['口罩庫存:'], style=bold),
+                                        html.Pre(id='info', children=[], className='style_info_box'),
+                                        # useful links
+                                        html.Br(),
+                                        dcc.Markdown(
+                                            children=[
+                                                "資料來源:\n[衛生局抗疫專頁](https://www.ssm.gov.mo/apps1/PreventWuhanInfection/ch.aspx)\n",
+                                                '\n',
+                                                "相關連結:\n[武漢肺炎民間資訊(香港)](https://wars.vote4.hk/)\n",
+                                            ]
+                                        ),
+                                        html.Div('Disclaimer: ', style={'position': 'absolute', "bottom": '1px'})
                                     ],
                                 ),
-                        html.Br(),
-                        # Information
-                        html.H2(['口罩庫存:'], style=bold),
-                        html.Pre(id='info', children=[], className='style_info_box'),
-                        # useful links
-                        html.Br(),
-                        dcc.Markdown(
-                            children=[
-                                "資料來源:\n[衛生局抗疫專頁](https://www.ssm.gov.mo/apps1/PreventWuhanInfection/ch.aspx)\n",
-                                '\n',
-                                "相關連結:\n[武漢肺炎民間資訊(香港)](https://wars.vote4.hk/)\n",
-                            ]
-                        ),
-                        html.Div('Disclaimer: ', style={'position': 'absolute', "bottom": '1px'})
-                    ],
-                ),
-                # Column for app graphs and plots
-                html.Div(
-                    className="eight columns div-for-charts",
-                    children=[
-                        html.Div(children=[
-                            html.Div(className="text-padding",
-                                     children=["請點擊口罩購買位置,以獲取更多資訊", ],
-                                     ),
-                            dcc.Graph(id="map-graph"),
-                            # update data every 5 minutes. Interval in millisecond
-                            dcc.Interval(id='interval-component', interval=1000 * 60* 5),
-                            dcc.Graph(id="bar-chart"),
-                        ],
-                        ),
-                    ],
-                ),
-            ],
-        )
-    ]
-)
+                                # Column for app graphs and plots
+                                html.Div(
+                                    className="eight columns div-for-charts",
+                                    children=[
+                                        html.Div(children=[
+                                            html.Div(className="text-padding",
+                                                     children=["請點擊口罩購買位置,以獲取更多資訊", ],
+                                                     ),
+                                            dcc.Graph(id="map-graph"),
+                                            # update data every 5 minutes. Interval in millisecond
+                                            dcc.Interval(id='interval-component', interval=1000 * 60),
+                                            dcc.Graph(id="bar-chart"),
+                                        ],
+                                        ),
+                                    ],
+                                ),
+                            ],
+                        )
+                    ]
+                    )
 
 
+dash_app.layout = serve_layout()
+
+
+# function to draw the map
 def draw_map(df):
     # Create figure
     locations = [go.Scattermapbox(
@@ -225,6 +230,7 @@ def draw_map(df):
     }
 
 
+# function to draw the bar chart
 def draw_bar_chart(df):
     df = df.groupby('human_parsed_date').agg({'tolqty_diff': sum})
     data = go.Bar(x=df.index, y=df['tolqty_diff'], opacity=0.8,
@@ -261,31 +267,39 @@ def display_click_poi_info(clickData):
 
 # graphs update
 @dash_app.callback(Output('map-graph', 'figure'),
-                   [Input('interval-component', 'n_intervals')])
-def update_map(n):
-    df_full = pd.read_csv(ASSETS_FOLDER / 'df_full.gz',
-                          encoding='utf-8',
-                          parse_dates=['parsed_timestamp', 'human_parsed_timestamp'],
-                          infer_datetime_format=True,
-                          low_memory=False)
-    df_most_update, _ = final_processing(df_full)
-    return draw_map(df_most_update)
+                   [Input('intermediate-value', 'children')])
+def update_map(jsonified_cleaned_data):
+    datasets = json.loads(jsonified_cleaned_data)
+    df = pd.read_json(datasets['df_most_update'], orient='split')
+    return draw_map(df)
 
 
 @dash_app.callback(Output('bar-chart', 'figure'),
-                   [Input('interval-component', 'n_intervals')])
-def update_bar_chart(n):
-    df_full = pd.read_csv(ASSETS_FOLDER / 'df_full.gz',
-                          encoding='utf-8',
-                          parse_dates=['parsed_timestamp', 'human_parsed_timestamp'],
-                          infer_datetime_format=True,
-                          low_memory=False)
-    _, df_all = final_processing(df_full)
-    return draw_bar_chart(df_all)
+                   [Input('intermediate-value', 'children'),])
+def update_bar_chart(jsonified_cleaned_data):
+    datasets = json.loads(jsonified_cleaned_data)
+    df = pd.read_json(datasets['df_by_day'], orient='split')
+    return draw_bar_chart(df)
 
 
+# for live-updating data at every `n_intervals`
+@dash_app.callback(
+    Output('intermediate-value', 'children'),
+    [Input('interval-component', 'n_intervals')])
+def clean_data(n):
+    df = pd.read_csv(GS_DFFULL_URL, encoding='utf-8',
+                     parse_dates=['parsed_timestamp', 'human_parsed_timestamp'],
+                     infer_datetime_format=True,
+                     low_memory=False)
+    print(df['human_parsed_timestamp'].max())
+    df_most_update, df_by_day = final_processing(df)
+    datasets = {
+         'df_most_update': df_most_update.to_json(orient='split', date_format='iso'),
+         'df_by_day': df_by_day.to_json(orient='split', date_format='iso'),
+    }
+    return json.dumps(datasets)
 # --------------------------------------------------------------
 
 
 if __name__ == '__main__':
-    dash_app.run_server(debug=True)
+    dash_app.run_server(debug=False)
