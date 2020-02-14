@@ -431,3 +431,9 @@ Taken from https://codepen.io/chriddyp/pen/bWLwgP.css
     padding: 12px 12px 12px 12px;
     margin-top: 3px
 }
+.disclaimer {
+    font-size: 10px;
+    position: sticky;
+    bottom: 0;
+    word-wrap: normal;
+}

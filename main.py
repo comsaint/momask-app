@@ -22,6 +22,7 @@ import plotly.graph_objs as go
 import pandas as pd
 from settings import GS_DFFULL_URL
 import json
+import functools
 
 mapbox_access_token = 'pk.eyJ1IjoiY29tc2FpbnQiLCJhIjoiY2s2Ynpvd2VhMTNlcTNlcGtqamJjb2o3bSJ9.3_uGJ8EBdgxqntrEslskCQ'
 bold = {'font-weight': 'bold'}
@@ -101,6 +102,7 @@ dash_app.index_string = '''
             {%scripts%}
             {%renderer%}
         </footer>
+        <script async type="text/javascript" src="//s7.addthis.com/js/300/addthis_widget.js#pubid=ra-5e4525db8adc17a7"></script>
     </body>
 </html>
 '''
@@ -112,6 +114,8 @@ def serve_layout():
     return html.Div(
                     children=[
                         html.Div(id='intermediate-value', children=[], hidden=True),
+                        # update data every 5 minutes. Interval in millisecond
+                        dcc.Interval(id='interval-component', interval=1000 * 60 * 5),
                         html.Div(
                             className="row",
                             children=[
@@ -121,6 +125,9 @@ def serve_layout():
                                     children=[
                                         # html.Img(className="logo", src=app.get_asset_url("dash-logo-new.png")),
                                         html.H1("Momask - 邊度有口罩?"),
+                                        html.Div(className="text-padding",
+                                                 children=["請點擊口罩購買位置,以獲取更多資訊", ],
+                                                 ),
                                         # Map legend
                                         html.Ul(className='style_legend',
                                                 children=[
@@ -150,31 +157,37 @@ def serve_layout():
                                                 "資料來源:\n[衛生局抗疫專頁](https://www.ssm.gov.mo/apps1/PreventWuhanInfection/ch.aspx)\n",
                                                 '\n',
                                                 "相關連結:\n[武漢肺炎民間資訊(香港)](https://wars.vote4.hk/)\n",
+                                                "有意見/問題? [聯絡我們](mailto:momaskmacao@gmail.com)\n"
                                             ]
                                         ),
-                                        html.Div('Disclaimer: ', style={'position': 'absolute', "bottom": '1px'})
+                                        html.Br(),
+                                        # social share
+                                        html.Div(className='addthis_inline_share_toolbox_m4ht', ),
+                                        html.Br(),
+                                        # disclaimer
+                                        html.Div(children=[
+                                            html.P('免責聲明', style={"text-align": "center"}),
+                                            html.P(className='disclaimer', children=[
+                                                "本網頁所載的所有資料謹供參考之用。Admin只能盡力確保準確性，"
+                                                "但不會對任何錯誤或遺漏承擔責任。如有任何疑問，請以官方公佈資料為準。"
+                                            ]),
+                                        ]),
                                     ],
                                 ),
                                 # Column for app graphs and plots
                                 html.Div(
                                     className="eight columns div-for-charts",
                                     children=[
-                                        html.Div(children=[
-                                            html.Div(className="text-padding",
-                                                     children=["請點擊口罩購買位置,以獲取更多資訊", ],
-                                                     ),
-                                            dcc.Graph(id="map-graph"),
-                                            # update data every 5 minutes. Interval in millisecond
-                                            dcc.Interval(id='interval-component', interval=1000 * 60),
-                                            dcc.Graph(id="bar-chart"),
-                                        ],
-                                        ),
+                                        dcc.Loading(id="loading-icon1", type="default", children=[
+                                            dcc.Graph(id="map-graph"),]),
+                                        dcc.Loading(id="loading-icon2", type="default", children=[
+                                            dcc.Graph(id="bar-chart"),]),
                                     ],
                                 ),
                             ],
-                        )
-                    ]
-                    )
+                        ),
+                    ],
+    )
 
 
 dash_app.layout = serve_layout()
@@ -286,6 +299,7 @@ def update_bar_chart(jsonified_cleaned_data):
 @dash_app.callback(
     Output('intermediate-value', 'children'),
     [Input('interval-component', 'n_intervals')])
+@functools.lru_cache(maxsize=32)
 def clean_data(n):
     df = pd.read_csv(GS_DFFULL_URL, encoding='utf-8',
                      parse_dates=['parsed_timestamp', 'human_parsed_timestamp'],
@@ -299,6 +313,14 @@ def clean_data(n):
     }
     return json.dumps(datasets)
 # --------------------------------------------------------------
+
+
+@app.after_request
+def set_response_headers(response):
+    response.headers['Cache-Control'] = 'private'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '300'
+    return response
 
 
 if __name__ == '__main__':
